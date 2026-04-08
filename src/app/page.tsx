@@ -356,7 +356,7 @@ export default function Home() {
 
                   {/* View link */}
                   <a
-                    href={p.url}
+                    href={p.source_url}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}

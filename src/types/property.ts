@@ -1,13 +1,19 @@
+// Matches the actual live Supabase schema.
+// Note: the upsert_property RPC maps p_lat→latitude, p_lng→longitude,
+// p_source→source_platform, p_url→source_url internally.
+
 export type ListingType = "sale" | "lease";
 
 export interface Property {
   id: string;
-  source: string;
-  external_id: string;
-  url: string;
+  source_platform: string;
+  external_id: string | null;
+  source_url: string;
   address: string;
-  lat: number;
-  lng: number;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   price: number | null;
   sqft: number | null;
   property_type: string | null;
@@ -15,8 +21,9 @@ export interface Property {
   broker_name: string | null;
   broker_phone: string | null;
   value_score: number;
-  scraped_at: string;
-  created_at: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  is_active: boolean;
 }
 
 export interface Filters {

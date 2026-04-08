@@ -17,7 +17,7 @@ function formatPrice(price: number | null): string {
   }).format(price);
 }
 
-// Fits map bounds to all visible markers on first load.
+// Fits the map to show all markers the first time they load.
 function FitBounds({ properties }: { properties: Property[] }) {
   const map = useMap();
   const fitted = useRef(false);
@@ -25,7 +25,7 @@ function FitBounds({ properties }: { properties: Property[] }) {
   useEffect(() => {
     if (fitted.current || properties.length === 0) return;
     const bounds = L.latLngBounds(
-      properties.map((p) => [p.lat as number, p.lng as number])
+      properties.map((p) => [p.latitude as number, p.longitude as number])
     );
     map.fitBounds(bounds, { padding: [48, 48] });
     fitted.current = true;
@@ -34,7 +34,7 @@ function FitBounds({ properties }: { properties: Property[] }) {
   return null;
 }
 
-// Flies to selected property and opens its popup.
+// Flies to selected property and opens its popup after animation.
 function FlyAndOpen({
   selected,
   markerRefs,
@@ -47,9 +47,9 @@ function FlyAndOpen({
 
   useEffect(() => {
     if (!selected || selected.id === prevId.current) return;
-    if (selected.lat == null || selected.lng == null) return;
+    if (selected.latitude == null || selected.longitude == null) return;
     prevId.current = selected.id;
-    map.flyTo([selected.lat as number, selected.lng as number], 16, {
+    map.flyTo([selected.latitude, selected.longitude], 16, {
       animate: true,
       duration: 0.7,
     });
@@ -71,10 +71,9 @@ const TULSA: [number, number] = [36.1539, -95.9928];
 
 export default function Map({ properties, selected, onSelect }: MapProps) {
   const visible = properties.filter(
-    (p) => p.lat != null && p.lng != null
+    (p) => p.latitude != null && p.longitude != null
   );
 
-  // Keyed by property id — gives us imperative openPopup() access.
   const markerRefs = useRef<Record<string, LeafletCircleMarker>>({});
 
   return (
@@ -97,7 +96,7 @@ export default function Map({ properties, selected, onSelect }: MapProps) {
             if (r) markerRefs.current[p.id] = r as unknown as LeafletCircleMarker;
             else delete markerRefs.current[p.id];
           }}
-          center={[p.lat as number, p.lng as number]}
+          center={[p.latitude as number, p.longitude as number]}
           radius={12}
           pathOptions={{
             fillColor: scoreColor(p.value_score),
@@ -108,21 +107,20 @@ export default function Map({ properties, selected, onSelect }: MapProps) {
           eventHandlers={{ click: () => onSelect(p) }}
         >
           <Popup>
-            <div className="text-sm" style={{ minWidth: 170 }}>
-              <p className="font-semibold text-gray-900 leading-snug mb-1">
+            <div style={{ minWidth: 170 }}>
+              <p style={{ fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }}>
                 {p.address}
               </p>
-              <p className="text-gray-700 mb-0.5">{formatPrice(p.price)}</p>
+              <p style={{ color: "#374151", marginBottom: 2 }}>
+                {formatPrice(p.price)}
+              </p>
               {p.property_type && (
-                <p className="text-gray-500 capitalize text-xs">
+                <p style={{ color: "#6b7280", fontSize: 12, textTransform: "capitalize" }}>
                   {p.property_type}
                 </p>
               )}
-              <p
-                className="text-xs font-semibold mt-1"
-                style={{ color: scoreColor(p.value_score) }}
-              >
-                Score: {p.value_score ?? "—"}
+              <p style={{ color: scoreColor(p.value_score), fontWeight: 600, fontSize: 12, marginTop: 4 }}>
+                Score: {p.value_score}
               </p>
             </div>
           </Popup>
