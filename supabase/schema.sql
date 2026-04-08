@@ -115,3 +115,12 @@ create policy "anon delete" on properties   for delete using (true);
 -- ── AI analysis columns (migration — safe to re-run) ──────────────────────────
 alter table properties add column if not exists ai_rationale text;
 alter table properties add column if not exists ai_flags     text[] default '{}';
+
+-- ── Investment-criteria cleanup (run once to clean existing data) ──────────────
+-- Step 1: Remove lease listings, inactive, and unrecognized property types
+-- delete from properties where listing_type = 'lease';
+-- delete from properties where property_type not in ('office','industrial','multifamily','mixed-use','retail','land');
+-- delete from properties where is_active = false;
+
+-- Step 4: Reset AI rationale so the new buy-hold/redevelopment prompt is used
+-- update properties set ai_rationale = null, ai_flags = '{}';

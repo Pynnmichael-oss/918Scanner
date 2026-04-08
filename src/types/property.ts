@@ -30,7 +30,7 @@ export interface Property {
 
 export interface Filters {
   propertyType: string;
-  listingType: string;
+  strategy: string;   // '' | 'income' | 'redevelopment'
   minPrice: string;
   maxPrice: string;
 }

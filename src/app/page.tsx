@@ -11,13 +11,12 @@ import { X, ExternalLink, Phone, Menu, Trash2, Check } from "lucide-react";
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
 const PROPERTY_TYPES = [
-  "office",
-  "retail",
-  "industrial",
-  "land",
-  "multifamily",
-  "mixed-use",
+  "office", "industrial", "multifamily", "mixed-use", "retail", "land",
 ];
+
+// Property types in each strategy bucket
+const INCOME_TYPES    = new Set(["office", "retail", "multifamily", "industrial"]);
+const REDEVEL_TYPES   = new Set(["land", "mixed-use"]);
 
 const TYPE_BADGE: Record<string, string> = {
   office:      "bg-blue-50 text-blue-700",
@@ -29,18 +28,18 @@ const TYPE_BADGE: Record<string, string> = {
 };
 
 const FLAG_COLORS: Record<string, string> = {
-  "below-market":  "bg-green-100 text-green-700",
-  "value-add":     "bg-green-100 text-green-700",
-  "corner-lot":    "bg-blue-100 text-blue-700",
-  "high-traffic":  "bg-blue-100 text-blue-700",
-  "redevelopment": "bg-purple-100 text-purple-700",
-  "stable-income": "bg-teal-100 text-teal-700",
-  "distressed":    "bg-red-100 text-red-700",
-  "land-play":     "bg-yellow-100 text-yellow-700",
-  "owner-user":    "bg-indigo-100 text-indigo-700",
-  "NNN":           "bg-teal-100 text-teal-700",
-  "above-market":  "bg-orange-100 text-orange-700",
-  "watch-only":    "bg-yellow-100 text-yellow-700",
+  "below-market":          "bg-green-100 text-green-700",
+  "value-add":             "bg-green-100 text-green-700",
+  "redevelopment":         "bg-purple-100 text-purple-700",
+  "stable-income":         "bg-teal-100 text-teal-700",
+  "distressed":            "bg-red-100 text-red-700",
+  "land-play":             "bg-yellow-100 text-yellow-700",
+  "high-traffic-location": "bg-blue-100 text-blue-700",
+  "NNN-potential":         "bg-teal-100 text-teal-700",
+  "multifamily-upside":    "bg-indigo-100 text-indigo-700",
+  "industrial-demand":     "bg-orange-100 text-orange-700",
+  "mixed-use-opportunity": "bg-cyan-100 text-cyan-700",
+  "tulsa-growth-corridor": "bg-emerald-100 text-emerald-700",
 };
 
 async function fetchProperties(): Promise<Property[]> {
@@ -98,7 +97,7 @@ const VERDICT_STYLE: Record<string, string> = {
 
 const DEFAULT_FILTERS: Filters = {
   propertyType: "",
-  listingType: "",
+  strategy: "",
   minPrice: "",
   maxPrice: "",
 };
@@ -115,14 +114,13 @@ export default function Home() {
   );
 
   async function deleteProperty(id: string) {
-    // Optimistically remove from cache
     mutate((prev) => prev?.filter((p) => p.id !== id), false);
     if (selected?.id === id) setSelected(null);
     setPendingDelete(null);
     const { error } = await supabase.from("properties").delete().eq("id", id);
     if (error) {
       console.error("Delete failed:", error.message);
-      mutate(); // re-fetch on failure
+      mutate();
     }
   }
 
@@ -130,7 +128,10 @@ export default function Home() {
     return allProperties.filter((p) => {
       if (filters.propertyType && p.property_type !== filters.propertyType)
         return false;
-      if (filters.listingType && p.listing_type !== filters.listingType)
+      if (filters.strategy === "income" && !INCOME_TYPES.has(p.property_type ?? ""))
+        return false;
+      if (filters.strategy === "redevelopment" &&
+          !REDEVEL_TYPES.has(p.property_type ?? "") && (p.value_score ?? 100) >= 60)
         return false;
       if (filters.minPrice && p.price != null && p.price < Number(filters.minPrice))
         return false;
@@ -145,7 +146,6 @@ export default function Home() {
     [filtered]
   );
 
-  // Scroll to selected card whenever it changes (e.g., via map popup click)
   useEffect(() => {
     if (!selected) return;
     setTimeout(() => {
@@ -170,13 +170,10 @@ export default function Home() {
           <Menu size={20} />
         </button>
         <span className="font-semibold text-gray-900">918Scanner</span>
-        <span className="ml-auto text-sm text-gray-500">
-          {filtered.length} listings
-        </span>
+        <span className="ml-auto text-sm text-gray-500">{filtered.length} listings</span>
       </header>
 
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Mobile overlay */}
         {sidebarOpen && (
           <div
             className="md:hidden fixed inset-0 bg-black/40 z-30"
@@ -190,26 +187,20 @@ export default function Home() {
             "fixed md:relative inset-y-0 left-0 z-40 md:z-auto",
             "w-72 bg-white shadow-lg flex flex-col shrink-0",
             "transition-transform duration-200",
-            sidebarOpen
-              ? "translate-x-0"
-              : "-translate-x-full md:translate-x-0",
+            sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
           ].join(" ")}
         >
           {/* Sidebar header */}
           <div className="flex items-center justify-between px-4 py-4 border-b shrink-0">
             <div>
               <h1 className="font-bold text-lg text-gray-900">918Scanner</h1>
-              <p className="text-xs text-gray-500">Tulsa Commercial Real Estate</p>
+              <p className="text-xs text-gray-500">Tulsa CRE · For Sale · Buy &amp; Hold</p>
             </div>
-            <button
-              className="md:hidden p-1 text-gray-400"
-              onClick={() => setSidebarOpen(false)}
-            >
+            <button className="md:hidden p-1 text-gray-400" onClick={() => setSidebarOpen(false)}>
               <X size={18} />
             </button>
           </div>
 
-          {/* Scrollable content: filters + listings */}
           <div className="flex-1 overflow-y-auto min-h-0">
 
             {/* ── Filters ── */}
@@ -220,14 +211,43 @@ export default function Home() {
                   {filtered.length} of {allProperties.length} listings
                 </span>
                 {isLoading && (
-                  <span className="px-2 py-1 bg-blue-50 rounded text-blue-600">
-                    Loading…
-                  </span>
+                  <span className="px-2 py-1 bg-blue-50 rounded text-blue-600">Loading…</span>
                 )}
                 {error && (
-                  <span className="px-2 py-1 bg-red-50 rounded text-red-600">
-                    Load error
-                  </span>
+                  <span className="px-2 py-1 bg-red-50 rounded text-red-600">Load error</span>
+                )}
+              </div>
+
+              {/* Strategy filter */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Strategy
+                </label>
+                <div className="flex gap-1.5">
+                  {([
+                    { value: "",              label: "All" },
+                    { value: "income",        label: "Income Play" },
+                    { value: "redevelopment", label: "Redevelopment" },
+                  ] as const).map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setFilters((f) => ({ ...f, strategy: value }))}
+                      className={[
+                        "flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+                        filters.strategy === value
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300",
+                      ].join(" ")}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {filters.strategy === "income" && (
+                  <p className="text-xs text-gray-400 mt-1">Office · Retail · Multifamily · Industrial</p>
+                )}
+                {filters.strategy === "redevelopment" && (
+                  <p className="text-xs text-gray-400 mt-1">Land · Mixed-Use · Distressed (score &lt;60)</p>
                 )}
               </div>
 
@@ -239,9 +259,7 @@ export default function Home() {
                 <select
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   value={filters.propertyType}
-                  onChange={(e) =>
-                    setFilters((f) => ({ ...f, propertyType: e.target.value }))
-                  }
+                  onChange={(e) => setFilters((f) => ({ ...f, propertyType: e.target.value }))}
                 >
                   <option value="">All types</option>
                   {PROPERTY_TYPES.map((t) => (
@@ -250,31 +268,6 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* Listing type */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Listing Type
-                </label>
-                <div className="flex gap-2">
-                  {(["", "sale", "lease"] as const).map((type) => (
-                    <button
-                      key={type}
-                      onClick={() =>
-                        setFilters((f) => ({ ...f, listingType: type }))
-                      }
-                      className={[
-                        "flex-1 py-1.5 rounded-lg text-sm font-medium border transition-colors",
-                        filters.listingType === type
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300",
-                      ].join(" ")}
-                    >
-                      {type === "" ? "All" : type[0].toUpperCase() + type.slice(1)}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Price range */}
@@ -288,18 +281,14 @@ export default function Home() {
                     placeholder="Min"
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={filters.minPrice}
-                    onChange={(e) =>
-                      setFilters((f) => ({ ...f, minPrice: e.target.value }))
-                    }
+                    onChange={(e) => setFilters((f) => ({ ...f, minPrice: e.target.value }))}
                   />
                   <input
                     type="number"
                     placeholder="Max"
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={filters.maxPrice}
-                    onChange={(e) =>
-                      setFilters((f) => ({ ...f, maxPrice: e.target.value }))
-                    }
+                    onChange={(e) => setFilters((f) => ({ ...f, maxPrice: e.target.value }))}
                   />
                 </div>
               </div>
@@ -337,10 +326,7 @@ export default function Home() {
                 Listings
               </p>
 
-              {isLoading && (
-                <p className="text-sm text-gray-400 px-1">Loading…</p>
-              )}
-
+              {isLoading && <p className="text-sm text-gray-400 px-1">Loading…</p>}
               {!isLoading && sortedListings.length === 0 && (
                 <p className="text-sm text-gray-400 px-1">No listings found.</p>
               )}
@@ -406,15 +392,8 @@ export default function Home() {
                     {/* Badges */}
                     <div className="flex flex-wrap gap-1 mb-2">
                       {p.property_type && (
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${TYPE_BADGE[p.property_type] ?? "bg-gray-100 text-gray-600"}`}
-                        >
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${TYPE_BADGE[p.property_type] ?? "bg-gray-100 text-gray-600"}`}>
                           {p.property_type}
-                        </span>
-                      )}
-                      {p.listing_type && (
-                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 capitalize">
-                          {p.listing_type}
                         </span>
                       )}
                       <ScoreBadge score={p.value_score} />
@@ -487,7 +466,7 @@ export default function Home() {
 
           {/* Footer */}
           <div className="shrink-0 px-4 py-3 border-t text-xs text-gray-400">
-            Updated daily via GitHub Actions
+            For Sale · Updated daily via GitHub Actions
           </div>
         </aside>
 
