@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
 import type { Property, Filters } from "@/types/property";
 import { scoreColor } from "@/lib/colors";
-import { X, ExternalLink, Phone, Menu, Trash2, Check } from "lucide-react";
+import { X, ExternalLink, Phone, Menu, Trash2, Check, TrendingUp, Hammer, MapPin, Target } from "lucide-react";
 
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
@@ -94,6 +94,131 @@ const VERDICT_STYLE: Record<string, string> = {
   Watch: "bg-yellow-100 text-yellow-700 font-semibold",
   Pass:  "bg-red-100 text-red-700 font-semibold",
 };
+
+function formatPpsf(price: number | null, sqft: number | null): string {
+  if (!price || !sqft || sqft === 0) return "";
+  return `$${Math.round(price / sqft).toLocaleString()}/sf`;
+}
+
+interface ParsedRationale {
+  income:  string | null;
+  redevel: string | null;
+  context: string | null;
+  verdict: string | null;
+  raw:     string;
+}
+
+function parseRationale(text: string | null): ParsedRationale | null {
+  if (!text) return null;
+  const clean = (s: string | undefined) =>
+    s?.replace(/\s+/g, " ").trim() ?? null;
+
+  // Strip leading "1." "2." etc. from each extracted section
+  const strip = (s: string | null) =>
+    s ? s.replace(/^\d+\.\s*/, "").replace(/\s+/g, " ").trim() : null;
+
+  const income  = strip(clean(text.match(/INCOME\s+POTENTIAL[:\s]+([^]*?)(?=\d\.\s+[A-Z]{2,}|REDEVELOPMENT|TULSA|VERDICT|$)/i)?.[1]));
+  const redevel = strip(clean(text.match(/REDEVELOPMENT\s+UPSIDE[:\s]+([^]*?)(?=\d\.\s+[A-Z]{2,}|INCOME|TULSA|VERDICT|$)/i)?.[1]));
+  const context = strip(clean(text.match(/TULSA\s+MARKET\s+CONTEXT[:\s]+([^]*?)(?=\d\.\s+[A-Z]{2,}|INCOME|REDEVELOPMENT|VERDICT|$)/i)?.[1]));
+  const verdict = strip(clean(text.match(/VERDICT[:\s]+([^\n]{0,200})/i)?.[1]));
+  return { income, redevel, context, verdict, raw: text };
+}
+
+const SECTION_VERDICT: Record<string, { bg: string; text: string; border: string }> = {
+  Buy:   { bg: "bg-green-50",  text: "text-green-800",  border: "border-green-200" },
+  Watch: { bg: "bg-yellow-50", text: "text-yellow-800", border: "border-yellow-200" },
+  Pass:  { bg: "bg-red-50",    text: "text-red-800",    border: "border-red-200" },
+};
+
+function AIDetail({ p }: { p: Property }) {
+  const parsed = parseRationale(p.ai_rationale);
+  const verdict = extractVerdict(p.ai_rationale);
+  const vStyle = verdict ? SECTION_VERDICT[verdict] : null;
+
+  if (!p.ai_rationale) {
+    return (
+      <div className="mt-2 border-t border-gray-100 pt-2">
+        <p className="text-xs text-gray-400 italic">
+          AI analysis pending — will generate on next scrape.
+        </p>
+      </div>
+    );
+  }
+
+  // If sections couldn't be parsed, fall back to raw text
+  const hasSections = parsed && (parsed.income || parsed.redevel || parsed.context || parsed.verdict);
+
+  return (
+    <div className="mt-2 border-t border-gray-100 pt-2 space-y-2">
+      <div className="flex items-center gap-1">
+        <span className="text-xs">✨</span>
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          AI Analysis
+        </span>
+        {verdict && vStyle && (
+          <span className={`ml-auto px-2 py-0.5 rounded text-xs font-bold border ${vStyle.bg} ${vStyle.text} ${vStyle.border}`}>
+            {verdict}
+          </span>
+        )}
+      </div>
+
+      {hasSections ? (
+        <div className="space-y-1.5">
+          {parsed.income && (
+            <div className="flex gap-1.5 text-xs">
+              <TrendingUp size={11} className="text-teal-500 mt-0.5 shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-600">Income  </span>
+                <span className="text-gray-600">{parsed.income}</span>
+              </div>
+            </div>
+          )}
+          {parsed.redevel && (
+            <div className="flex gap-1.5 text-xs">
+              <Hammer size={11} className="text-purple-500 mt-0.5 shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-600">Redevelopment  </span>
+                <span className="text-gray-600">{parsed.redevel}</span>
+              </div>
+            </div>
+          )}
+          {parsed.context && (
+            <div className="flex gap-1.5 text-xs">
+              <MapPin size={11} className="text-blue-500 mt-0.5 shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-600">Tulsa Market  </span>
+                <span className="text-gray-600">{parsed.context}</span>
+              </div>
+            </div>
+          )}
+          {parsed.verdict && vStyle && (
+            <div className={`flex gap-1.5 text-xs rounded-lg px-2 py-1.5 border ${vStyle.bg} ${vStyle.border}`}>
+              <Target size={11} className={`mt-0.5 shrink-0 ${vStyle.text}`} />
+              <span className={`font-medium ${vStyle.text}`}>{parsed.verdict}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2 leading-relaxed">
+          {p.ai_rationale}
+        </p>
+      )}
+
+      {p.ai_flags && p.ai_flags.length > 0 && (
+        <div className="flex flex-wrap gap-1 pt-0.5">
+          {p.ai_flags.map((flag) => (
+            <span
+              key={flag}
+              className={`px-1.5 py-0.5 rounded text-xs font-medium ${FLAG_COLORS[flag] ?? "bg-gray-100 text-gray-600"}`}
+            >
+              {flag}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const DEFAULT_FILTERS: Filters = {
   propertyType: "",
@@ -332,7 +457,6 @@ export default function Home() {
               )}
 
               {sortedListings.map((p) => {
-                const verdict = extractVerdict(p.ai_rationale);
                 return (
                   <button
                     key={p.id}
@@ -379,12 +503,17 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* Price + sqft */}
+                    {/* Price + sqft + price/sf */}
                     <p className="text-sm font-semibold text-gray-800 mb-1">
                       {formatPrice(p.price)}
                       {p.sqft != null && (
                         <span className="font-normal text-gray-400 text-xs ml-1.5">
                           {formatSqft(p.sqft)}
+                        </span>
+                      )}
+                      {p.price && p.sqft && (
+                        <span className="font-normal text-gray-400 text-xs ml-1.5">
+                          · {formatPpsf(p.price, p.sqft)}
                         </span>
                       )}
                     </p>
@@ -399,9 +528,9 @@ export default function Home() {
                       <ScoreBadge score={p.value_score} />
                     </div>
 
-                    {/* Broker */}
-                    {(p.broker_name || p.broker_phone) && (
-                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                    {/* Broker — only show when selected */}
+                    {selected?.id === p.id && (p.broker_name || p.broker_phone) && (
+                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
                         {p.broker_name && <span>{p.broker_name}</span>}
                         {p.broker_phone && (
                           <a
@@ -416,37 +545,24 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* ── AI Analysis ── */}
-                    {p.ai_rationale && (
-                      <div className="mt-2 border-t border-gray-100 pt-2">
-                        <div className="flex items-center gap-1 mb-1">
+                    {/* ── AI Analysis — always structured when selected ── */}
+                    {selected?.id === p.id
+                      ? <AIDetail p={p} />
+                      : p.ai_rationale && (
+                        <div className="mt-1.5 border-t border-gray-100 pt-1.5 flex items-center gap-1">
                           <span className="text-xs">✨</span>
-                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                            AI Analysis
+                          {(() => {
+                            const v = extractVerdict(p.ai_rationale);
+                            return v ? (
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${VERDICT_STYLE[v]}`}>{v}</span>
+                            ) : null;
+                          })()}
+                          <span className="text-xs text-gray-400 truncate">
+                            {p.ai_rationale.slice(0, 60)}…
                           </span>
-                          {verdict && (
-                            <span className={`ml-auto px-1.5 py-0.5 rounded text-xs ${VERDICT_STYLE[verdict]}`}>
-                              {verdict}
-                            </span>
-                          )}
                         </div>
-                        <p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2 leading-relaxed">
-                          {p.ai_rationale}
-                        </p>
-                        {p.ai_flags && p.ai_flags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {p.ai_flags.map((flag) => (
-                              <span
-                                key={flag}
-                                className={`px-1.5 py-0.5 rounded text-xs font-medium ${FLAG_COLORS[flag] ?? "bg-gray-100 text-gray-600"}`}
-                              >
-                                {flag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                      )
+                    }
 
                     {/* View link */}
                     <a

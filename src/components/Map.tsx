@@ -17,11 +17,23 @@ function formatPrice(price: number | null): string {
   }).format(price);
 }
 
-function firstSentence(text: string | null): string {
-  if (!text) return "";
-  const m = text.match(/[^.!?]*[.!?]/);
-  return m ? m[0].trim() : text.slice(0, 120);
+function extractVerdict(text: string | null): string | null {
+  if (!text) return null;
+  const section = text.match(/VERDICT[:\s]+(.{0,80})/i)?.[1] ?? text;
+  return section.match(/\b(Buy|Watch|Pass)\b/i)?.[1] ?? null;
 }
+
+function incomeSnippet(text: string | null): string {
+  if (!text) return "";
+  // Try to pull the INCOME POTENTIAL sentence; fall back to first 100 chars
+  const m = text.match(/INCOME\s+POTENTIAL[:\s]+([^]*?)(?=\d\.\s+[A-Z]{2,}|REDEVELOPMENT|TULSA|VERDICT|$)/i);
+  const raw = m ? m[1].replace(/\s+/g, " ").trim() : text.slice(0, 100);
+  return raw.length > 100 ? raw.slice(0, 97) + "…" : raw;
+}
+
+const VERDICT_COLORS: Record<string, string> = {
+  Buy: "#15803d", Watch: "#a16207", Pass: "#b91c1c",
+};
 
 // Fits the map to show all markers the first time they load.
 function FitBounds({ properties }: { properties: Property[] }) {
@@ -130,19 +142,36 @@ export default function Map({ properties, selected, onSelect }: MapProps) {
                   Score: {p.value_score}
                 </span>
               </div>
-              {p.ai_rationale && (
-                <p style={{
-                  fontSize: 11,
-                  color: "#4b5563",
-                  background: "#f9fafb",
-                  borderRadius: 6,
-                  padding: "5px 7px",
-                  marginBottom: 6,
-                  lineHeight: 1.5,
-                }}>
-                  ✨ {firstSentence(p.ai_rationale)}
-                </p>
-              )}
+              {p.ai_rationale && (() => {
+                const verdict = extractVerdict(p.ai_rationale);
+                const snippet = incomeSnippet(p.ai_rationale);
+                const vColor  = verdict ? VERDICT_COLORS[verdict] ?? "#374151" : null;
+                return (
+                  <div style={{
+                    background: "#f9fafb", borderRadius: 6,
+                    padding: "6px 8px", marginBottom: 6,
+                  }}>
+                    {verdict && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+                        <span style={{ fontSize: 10 }}>✨</span>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700,
+                          color: vColor ?? "#374151",
+                          background: vColor ? vColor + "15" : "#f3f4f6",
+                          padding: "1px 6px", borderRadius: 4,
+                        }}>
+                          {verdict}
+                        </span>
+                      </div>
+                    )}
+                    {snippet && (
+                      <p style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.5, margin: 0 }}>
+                        {snippet}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               <button
                 onClick={() => onSelect(p)}
                 style={{
