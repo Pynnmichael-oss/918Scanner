@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
 import type { Property, Filters } from "@/types/property";
 import { scoreColor } from "@/lib/colors";
-import { X, ExternalLink, Phone, Menu } from "lucide-react";
+import { X, ExternalLink, Phone, Menu, Trash2, Check } from "lucide-react";
 
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
@@ -107,11 +107,24 @@ export default function Home() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Property | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
-  const { data: allProperties = [], error, isLoading } = useSWR(
+  const { data: allProperties = [], error, isLoading, mutate } = useSWR(
     "properties",
     fetchProperties
   );
+
+  async function deleteProperty(id: string) {
+    // Optimistically remove from cache
+    mutate((prev) => prev?.filter((p) => p.id !== id), false);
+    if (selected?.id === id) setSelected(null);
+    setPendingDelete(null);
+    const { error } = await supabase.from("properties").delete().eq("id", id);
+    if (error) {
+      console.error("Delete failed:", error.message);
+      mutate(); // re-fetch on failure
+    }
+  }
 
   const filtered = useMemo(() => {
     return allProperties.filter((p) => {
@@ -347,10 +360,38 @@ export default function Home() {
                         : "border-gray-100 bg-white",
                     ].join(" ")}
                   >
-                    {/* Address */}
-                    <p className="font-semibold text-gray-900 text-xs leading-snug mb-1.5">
-                      {p.address}
-                    </p>
+                    {/* Address row + delete control */}
+                    <div className="flex items-start justify-between gap-1 mb-1.5">
+                      <p className="font-semibold text-gray-900 text-xs leading-snug">
+                        {p.address}
+                      </p>
+                      {pendingDelete === p.id ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteProperty(p.id); }}
+                            className="p-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200"
+                            title="Confirm delete"
+                          >
+                            <Check size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setPendingDelete(null); }}
+                            className="p-0.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200"
+                            title="Cancel"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setPendingDelete(p.id); }}
+                          className="p-0.5 rounded text-gray-300 hover:text-red-400 hover:bg-red-50 shrink-0 transition-colors"
+                          title="Delete listing"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
 
                     {/* Price + sqft */}
                     <p className="text-sm font-semibold text-gray-800 mb-1">

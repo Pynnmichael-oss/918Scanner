@@ -110,6 +110,7 @@ alter table scan_history  enable row level security;
 
 create policy "public read" on properties   for select using (true);
 create policy "public read" on scan_history for select using (true);
+create policy "anon delete" on properties   for delete using (true);
 
 -- ── AI analysis columns (migration — safe to re-run) ──────────────────────────
 alter table properties add column if not exists ai_rationale text;
