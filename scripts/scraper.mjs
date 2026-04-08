@@ -6,6 +6,9 @@
  * Env vars required:
  *   NEXT_PUBLIC_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
+ *
+ * Optional:
+ *   DRY_RUN=true  — skip live scraping, write 5 fake Tulsa listings to Supabase
  */
 
 import { chromium } from "playwright";
@@ -15,6 +18,7 @@ import { setOutput } from "./lib/actions.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const DRY_RUN = process.env.DRY_RUN === "true";
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
@@ -22,6 +26,95 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── Fake listings (dry-run) ────────────────────────────────────────────────────
+//
+// Real Tulsa addresses and coordinates spread across the city.
+// Used to verify the full pipeline (Supabase → map markers → cards) before
+// tackling real scraping.
+
+const FAKE_LISTINGS = [
+  {
+    source:        "crexi",
+    external_id:   "test-1",
+    url:           "https://www.crexi.com/properties/test-1",
+    address:       "320 S Boston Ave, Tulsa, OK 74103",
+    lat:           36.1538,
+    lng:           -95.9896,
+    price:         1_250_000,
+    sqft:          8_400,
+    property_type: "office",
+    listing_type:  "sale",
+    broker_name:   "James Whitfield",
+    broker_phone:  "(918) 555-0101",
+    value_score:   82,
+    content_hash:  "dryrun0001",
+  },
+  {
+    source:        "crexi",
+    external_id:   "test-2",
+    url:           "https://www.crexi.com/properties/test-2",
+    address:       "4107 S Yale Ave, Tulsa, OK 74135",
+    lat:           36.1072,
+    lng:           -95.9400,
+    price:         680_000,
+    sqft:          3_200,
+    property_type: "retail",
+    listing_type:  "sale",
+    broker_name:   "Sandra Moore",
+    broker_phone:  "(918) 555-0147",
+    value_score:   71,
+    content_hash:  "dryrun0002",
+  },
+  {
+    source:        "crexi",
+    external_id:   "test-3",
+    url:           "https://www.crexi.com/properties/test-3",
+    address:       "2651 E 21st St, Tulsa, OK 74114",
+    lat:           36.1426,
+    lng:           -95.9494,
+    price:         null,
+    sqft:          14_000,
+    property_type: "industrial",
+    listing_type:  "lease",
+    broker_name:   "Ray Delgado",
+    broker_phone:  "(918) 555-0233",
+    value_score:   58,
+    content_hash:  "dryrun0003",
+  },
+  {
+    source:        "crexi",
+    external_id:   "test-4",
+    url:           "https://www.crexi.com/properties/test-4",
+    address:       "7902 E 51st St, Tulsa, OK 74145",
+    lat:           36.0782,
+    lng:           -95.9108,
+    price:         390_000,
+    sqft:          null,
+    property_type: "land",
+    listing_type:  "sale",
+    broker_name:   "Cheryl Nguyen",
+    broker_phone:  "(918) 555-0388",
+    value_score:   44,
+    content_hash:  "dryrun0004",
+  },
+  {
+    source:        "crexi",
+    external_id:   "test-5",
+    url:           "https://www.crexi.com/properties/test-5",
+    address:       "1602 N Peoria Ave, Tulsa, OK 74106",
+    lat:           36.1782,
+    lng:           -96.0012,
+    price:         2_800_000,
+    sqft:          22_500,
+    property_type: "multifamily",
+    listing_type:  "sale",
+    broker_name:   "Tom Garrison",
+    broker_phone:  "(918) 555-0419",
+    value_score:   88,
+    content_hash:  "dryrun0005",
+  },
+];
 
 // ── Playwright browser factory ─────────────────────────────────────────────────
 
@@ -46,7 +139,6 @@ async function makePage(browser) {
     extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
   });
   const page = await ctx.newPage();
-  // Remove webdriver fingerprint
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
   });
@@ -139,10 +231,6 @@ async function upsert(property) {
 }
 
 // ── Crexi ──────────────────────────────────────────────────────────────────────
-//
-// Strategy: load the Crexi Tulsa search page and intercept the XHR/fetch calls
-// the React app makes to api.crexi.com — we capture the raw JSON instead of
-// parsing rendered HTML, which sidesteps most anti-scraping measures.
 
 async function scrapeCrexi() {
   console.log("\n── Crexi ──────────────────────────────────────────");
@@ -173,7 +261,6 @@ async function scrapeCrexi() {
       "https://www.crexi.com/properties?states=OK&cities=Tulsa",
       { waitUntil: "domcontentloaded", timeout: 60000 }
     );
-    // Give React time to render and fire API calls
     await page.waitForTimeout(10000);
   } catch (e) {
     console.warn("  Crexi page load warning:", e.message);
@@ -226,7 +313,6 @@ async function scrapeBrevitas() {
   const page = await makePage(browser);
   const captured = [];
 
-  // Intercept any JSON API responses
   page.on("response", async (response) => {
     const url = response.url();
     const ct  = response.headers()["content-type"] ?? "";
@@ -250,7 +336,6 @@ async function scrapeBrevitas() {
     );
     await page.waitForTimeout(8000);
 
-    // If no API was intercepted, fall back to DOM scraping
     if (captured.length === 0) {
       const cards = await page.$$eval("a[href*='/listing/'], a[href*='/property/']", (els) =>
         els.slice(0, 50).map((el) => {
@@ -276,7 +361,6 @@ async function scrapeBrevitas() {
 
   const listings = [];
   for (const item of captured) {
-    // DOM-scraped card
     if (item._dom) {
       const { url, id, address, price: rawPrice, sqft: rawSqft, type } = item;
       if (!address && !id) continue;
@@ -304,7 +388,6 @@ async function scrapeBrevitas() {
       continue;
     }
 
-    // API-intercepted listing
     const address     = item.address ?? item.title ?? "";
     const price       = item.price ?? item.askingPrice ?? null;
     const sqft        = item.sqft ?? item.size ?? item.buildingSize ?? null;
@@ -350,20 +433,11 @@ async function finishScan(id, counts, status = "done") {
     .eq("id", id);
 }
 
-// ── run one source ─────────────────────────────────────────────────────────────
+// ── upsert a batch of listings ─────────────────────────────────────────────────
 
-async function run(source) {
+async function upsertAll(listings, source) {
   const scanId = await startScan(source);
   const counts = { inserted: 0, updated: 0, errors: 0 };
-  let listings;
-
-  try {
-    listings = source === "crexi" ? await scrapeCrexi() : await scrapeBrevitas();
-  } catch (e) {
-    console.error(`Fatal scrape error (${source}):`, e.message);
-    await finishScan(scanId, { errors: 1 }, "failed");
-    return counts;
-  }
 
   console.log(`  Upserting ${listings.length} listings…`);
   for (const l of listings) {
@@ -382,12 +456,39 @@ async function run(source) {
   return counts;
 }
 
+// ── run one live source ────────────────────────────────────────────────────────
+
+async function run(source) {
+  let listings;
+  try {
+    listings = source === "crexi" ? await scrapeCrexi() : await scrapeBrevitas();
+  } catch (e) {
+    console.error(`Fatal scrape error (${source}):`, e.message);
+    const scanId = await startScan(source);
+    await finishScan(scanId, { errors: 1 }, "failed");
+    return { inserted: 0, updated: 0, errors: 1 };
+  }
+  return upsertAll(listings, source);
+}
+
 // ── main ───────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("918Scanner scraper starting…");
   const start = Date.now();
 
+  if (DRY_RUN) {
+    console.log("918Scanner scraper — DRY RUN (fake listings)");
+    console.log(`Writing ${FAKE_LISTINGS.length} fake Tulsa listings to Supabase…\n`);
+    const counts = await upsertAll(FAKE_LISTINGS, "dry-run");
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    console.log(`\nDone in ${elapsed}s — inserted: ${counts.inserted}, updated: ${counts.updated}, errors: ${counts.errors}`);
+    setOutput("inserted", counts.inserted);
+    setOutput("updated",  counts.updated);
+    setOutput("errors",   counts.errors);
+    return;
+  }
+
+  console.log("918Scanner scraper starting…");
   const [crexi, brevitas] = await Promise.allSettled([
     run("crexi"),
     run("brevitas"),
@@ -408,8 +509,6 @@ async function main() {
   setOutput("inserted", totals.inserted);
   setOutput("updated",  totals.updated);
   setOutput("errors",   totals.errors);
-
-  if (totals.inserted === 0 && totals.updated === 0) process.exit(0);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
