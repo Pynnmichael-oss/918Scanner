@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
@@ -26,6 +26,21 @@ const TYPE_BADGE: Record<string, string> = {
   land:        "bg-green-50 text-green-700",
   multifamily: "bg-indigo-50 text-indigo-700",
   "mixed-use": "bg-cyan-50 text-cyan-700",
+};
+
+const FLAG_COLORS: Record<string, string> = {
+  "below-market":  "bg-green-100 text-green-700",
+  "value-add":     "bg-green-100 text-green-700",
+  "corner-lot":    "bg-blue-100 text-blue-700",
+  "high-traffic":  "bg-blue-100 text-blue-700",
+  "redevelopment": "bg-purple-100 text-purple-700",
+  "stable-income": "bg-teal-100 text-teal-700",
+  "distressed":    "bg-red-100 text-red-700",
+  "land-play":     "bg-yellow-100 text-yellow-700",
+  "owner-user":    "bg-indigo-100 text-indigo-700",
+  "NNN":           "bg-teal-100 text-teal-700",
+  "above-market":  "bg-orange-100 text-orange-700",
+  "watch-only":    "bg-yellow-100 text-yellow-700",
 };
 
 async function fetchProperties(): Promise<Property[]> {
@@ -67,6 +82,20 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
+function extractVerdict(rationale: string | null): "Buy" | "Watch" | "Pass" | null {
+  if (!rationale) return null;
+  const verdictSection = rationale.match(/VERDICT[:\s]+(.{0,60})/i)?.[1] ?? rationale;
+  const m = verdictSection.match(/\b(Buy|Watch|Pass)\b/i);
+  if (!m) return null;
+  return (m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()) as "Buy" | "Watch" | "Pass";
+}
+
+const VERDICT_STYLE: Record<string, string> = {
+  Buy:   "bg-green-100 text-green-700 font-semibold",
+  Watch: "bg-yellow-100 text-yellow-700 font-semibold",
+  Pass:  "bg-red-100 text-red-700 font-semibold",
+};
+
 const DEFAULT_FILTERS: Filters = {
   propertyType: "",
   listingType: "",
@@ -98,11 +127,21 @@ export default function Home() {
     });
   }, [allProperties, filters]);
 
-  // Sorted by value_score desc for the listings panel
   const sortedListings = useMemo(
     () => [...filtered].sort((a, b) => (b.value_score ?? 0) - (a.value_score ?? 0)),
     [filtered]
   );
+
+  // Scroll to selected card whenever it changes (e.g., via map popup click)
+  useEffect(() => {
+    if (!selected) return;
+    setTimeout(() => {
+      document.getElementById(`card-${selected.id}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }, 150);
+  }, [selected]);
 
   const hasFilters = Object.values(filters).some(Boolean);
 
@@ -293,79 +332,115 @@ export default function Home() {
                 <p className="text-sm text-gray-400 px-1">No listings found.</p>
               )}
 
-              {sortedListings.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelected(p)}
-                  className={[
-                    "w-full text-left rounded-xl border p-3 transition-all",
-                    "hover:border-blue-300 hover:shadow-sm",
-                    selected?.id === p.id
-                      ? "border-blue-400 bg-blue-50 shadow-sm"
-                      : "border-gray-100 bg-white",
-                  ].join(" ")}
-                >
-                  {/* Address */}
-                  <p className="font-semibold text-gray-900 text-xs leading-snug mb-1.5">
-                    {p.address}
-                  </p>
-
-                  {/* Price + sqft */}
-                  <p className="text-sm font-semibold text-gray-800 mb-1">
-                    {formatPrice(p.price)}
-                    {p.sqft != null && (
-                      <span className="font-normal text-gray-400 text-xs ml-1.5">
-                        {formatSqft(p.sqft)}
-                      </span>
-                    )}
-                  </p>
-
-                  {/* Badges */}
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    {p.property_type && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${TYPE_BADGE[p.property_type] ?? "bg-gray-100 text-gray-600"}`}
-                      >
-                        {p.property_type}
-                      </span>
-                    )}
-                    {p.listing_type && (
-                      <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 capitalize">
-                        {p.listing_type}
-                      </span>
-                    )}
-                    <ScoreBadge score={p.value_score} />
-                  </div>
-
-                  {/* Broker */}
-                  {(p.broker_name || p.broker_phone) && (
-                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
-                      {p.broker_name && <span>{p.broker_name}</span>}
-                      {p.broker_phone && (
-                        <a
-                          href={`tel:${p.broker_phone}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex items-center gap-0.5 text-blue-500 hover:underline"
-                        >
-                          <Phone size={11} />
-                          {p.broker_phone}
-                        </a>
-                      )}
-                    </div>
-                  )}
-
-                  {/* View link */}
-                  <a
-                    href={p.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium"
+              {sortedListings.map((p) => {
+                const verdict = extractVerdict(p.ai_rationale);
+                return (
+                  <button
+                    key={p.id}
+                    id={`card-${p.id}`}
+                    onClick={() => setSelected(p)}
+                    className={[
+                      "w-full text-left rounded-xl border p-3 transition-all",
+                      "hover:border-blue-300 hover:shadow-sm",
+                      selected?.id === p.id
+                        ? "border-blue-400 bg-blue-50 shadow-sm"
+                        : "border-gray-100 bg-white",
+                    ].join(" ")}
                   >
-                    View listing <ExternalLink size={11} />
-                  </a>
-                </button>
-              ))}
+                    {/* Address */}
+                    <p className="font-semibold text-gray-900 text-xs leading-snug mb-1.5">
+                      {p.address}
+                    </p>
+
+                    {/* Price + sqft */}
+                    <p className="text-sm font-semibold text-gray-800 mb-1">
+                      {formatPrice(p.price)}
+                      {p.sqft != null && (
+                        <span className="font-normal text-gray-400 text-xs ml-1.5">
+                          {formatSqft(p.sqft)}
+                        </span>
+                      )}
+                    </p>
+
+                    {/* Badges */}
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {p.property_type && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${TYPE_BADGE[p.property_type] ?? "bg-gray-100 text-gray-600"}`}
+                        >
+                          {p.property_type}
+                        </span>
+                      )}
+                      {p.listing_type && (
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 capitalize">
+                          {p.listing_type}
+                        </span>
+                      )}
+                      <ScoreBadge score={p.value_score} />
+                    </div>
+
+                    {/* Broker */}
+                    {(p.broker_name || p.broker_phone) && (
+                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                        {p.broker_name && <span>{p.broker_name}</span>}
+                        {p.broker_phone && (
+                          <a
+                            href={`tel:${p.broker_phone}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-0.5 text-blue-500 hover:underline"
+                          >
+                            <Phone size={11} />
+                            {p.broker_phone}
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── AI Analysis ── */}
+                    {p.ai_rationale && (
+                      <div className="mt-2 border-t border-gray-100 pt-2">
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className="text-xs">✨</span>
+                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                            AI Analysis
+                          </span>
+                          {verdict && (
+                            <span className={`ml-auto px-1.5 py-0.5 rounded text-xs ${VERDICT_STYLE[verdict]}`}>
+                              {verdict}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2 leading-relaxed">
+                          {p.ai_rationale}
+                        </p>
+                        {p.ai_flags && p.ai_flags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {p.ai_flags.map((flag) => (
+                              <span
+                                key={flag}
+                                className={`px-1.5 py-0.5 rounded text-xs font-medium ${FLAG_COLORS[flag] ?? "bg-gray-100 text-gray-600"}`}
+                              >
+                                {flag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* View link */}
+                    <a
+                      href={p.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium mt-2"
+                    >
+                      View listing <ExternalLink size={11} />
+                    </a>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -380,7 +455,10 @@ export default function Home() {
           <Map
             properties={filtered}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={(p) => {
+              setSelected(p);
+              setSidebarOpen(true);
+            }}
           />
         </main>
       </div>

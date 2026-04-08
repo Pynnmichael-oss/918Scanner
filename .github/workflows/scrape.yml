@@ -35,6 +35,7 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY:         ${{ secrets.ANTHROPIC_API_KEY }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: node scripts/scraper.mjs
 

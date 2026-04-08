@@ -24,6 +24,8 @@ export interface Property {
   first_seen_at: string;
   last_seen_at: string;
   is_active: boolean;
+  ai_rationale: string | null;
+  ai_flags: string[] | null;
 }
 
 export interface Filters {

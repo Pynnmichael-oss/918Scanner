@@ -17,6 +17,12 @@ function formatPrice(price: number | null): string {
   }).format(price);
 }
 
+function firstSentence(text: string | null): string {
+  if (!text) return "";
+  const m = text.match(/[^.!?]*[.!?]/);
+  return m ? m[0].trim() : text.slice(0, 120);
+}
+
 // Fits the map to show all markers the first time they load.
 function FitBounds({ properties }: { properties: Property[] }) {
   const map = useMap();
@@ -107,21 +113,50 @@ export default function Map({ properties, selected, onSelect }: MapProps) {
           eventHandlers={{ click: () => onSelect(p) }}
         >
           <Popup>
-            <div style={{ minWidth: 170 }}>
-              <p style={{ fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }}>
+            <div style={{ minWidth: 190, fontFamily: "inherit" }}>
+              <p style={{ fontWeight: 600, marginBottom: 4, lineHeight: 1.3, fontSize: 13 }}>
                 {p.address}
               </p>
-              <p style={{ color: "#374151", marginBottom: 2 }}>
+              <p style={{ color: "#374151", marginBottom: 2, fontSize: 13 }}>
                 {formatPrice(p.price)}
               </p>
-              {p.property_type && (
-                <p style={{ color: "#6b7280", fontSize: 12, textTransform: "capitalize" }}>
-                  {p.property_type}
+              <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                {p.property_type && (
+                  <span style={{ fontSize: 11, color: "#6b7280", textTransform: "capitalize" }}>
+                    {p.property_type}
+                  </span>
+                )}
+                <span style={{ fontSize: 11, fontWeight: 600, color: scoreColor(p.value_score) }}>
+                  Score: {p.value_score}
+                </span>
+              </div>
+              {p.ai_rationale && (
+                <p style={{
+                  fontSize: 11,
+                  color: "#4b5563",
+                  background: "#f9fafb",
+                  borderRadius: 6,
+                  padding: "5px 7px",
+                  marginBottom: 6,
+                  lineHeight: 1.5,
+                }}>
+                  ✨ {firstSentence(p.ai_rationale)}
                 </p>
               )}
-              <p style={{ color: scoreColor(p.value_score), fontWeight: 600, fontSize: 12, marginTop: 4 }}>
-                Score: {p.value_score}
-              </p>
+              <button
+                onClick={() => onSelect(p)}
+                style={{
+                  fontSize: 11,
+                  color: "#2563eb",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                }}
+              >
+                See details →
+              </button>
             </div>
           </Popup>
         </CircleMarker>

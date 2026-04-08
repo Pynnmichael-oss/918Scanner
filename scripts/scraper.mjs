@@ -16,11 +16,13 @@
 
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
+import Anthropic from "@anthropic-ai/sdk";
 import crypto from "crypto";
 import { setOutput } from "./lib/actions.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const DRY_RUN = process.env.DRY_RUN === "true";
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -400,6 +402,99 @@ async function scrapeCrexi() {
   return listings;
 }
 
+// ── AI enrichment ─────────────────────────────────────────────────────────────
+
+async function enrichWithAI() {
+  if (!ANTHROPIC_API_KEY) {
+    console.log("\nANTHROPIC_API_KEY not set — skipping AI enrichment.");
+    return;
+  }
+
+  const { data: properties, error } = await supabase
+    .from("properties")
+    .select("*")
+    .is("ai_rationale", null);
+
+  if (error) {
+    console.error("Failed to fetch properties for AI enrichment:", error.message);
+    return;
+  }
+  if (!properties?.length) {
+    console.log("\nNo properties need AI enrichment.");
+    return;
+  }
+
+  console.log(`\n── AI enrichment ───────────────────────────────────`);
+  console.log(`  Enriching ${properties.length} properties…`);
+
+  const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+  for (const p of properties) {
+    try {
+      const ppsf = p.price && p.sqft ? (p.price / p.sqft).toFixed(0) : "N/A";
+
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-0",
+        max_tokens: 300,
+        system:
+          "You are a commercial real estate investment analyst specializing in the Tulsa, Oklahoma market. Be concise, specific, and practical.",
+        messages: [
+          {
+            role: "user",
+            content: `Analyze this Tulsa commercial property as a potential investment:
+Address: ${p.address}
+Type: ${p.property_type ?? "unknown"}
+Listing Type: ${p.listing_type ?? "unknown"}
+Price: $${p.price ?? "N/A"}
+Size: ${p.sqft ?? "N/A"} sqft
+Price/sqft: $${ppsf}
+Value Score: ${p.value_score}/100
+Broker: ${p.broker_name ?? "unknown"}
+
+Provide:
+1. OPPORTUNITY (2 sentences): Why this could be a good investment
+2. RISKS (1 sentence): Main concern
+3. VERDICT (1 sentence): Buy/Watch/Pass and why
+
+Keep total response under 100 words.
+
+Also select 2-4 tags from: ["below-market", "value-add", "corner-lot", "high-traffic", "redevelopment", "stable-income", "distressed", "land-play", "owner-user", "NNN", "above-market", "watch-only"]
+
+Return ONLY valid JSON: {"rationale": "<your analysis>", "flags": ["tag1", "tag2"]}`,
+          },
+        ],
+      });
+
+      const text =
+        response.content[0]?.type === "text" ? response.content[0].text : "";
+
+      let rationale = text;
+      let flags = [];
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          rationale = parsed.rationale ?? text;
+          flags = Array.isArray(parsed.flags) ? parsed.flags : [];
+        }
+      } catch { /* use raw text */ }
+
+      const { error: updateError } = await supabase
+        .from("properties")
+        .update({ ai_rationale: rationale, ai_flags: flags })
+        .eq("id", p.id);
+
+      if (updateError) throw new Error(updateError.message);
+      console.log(`  [AI] ${p.address}`);
+
+      // Brief pause to respect rate limits
+      await new Promise((r) => setTimeout(r, 600));
+    } catch (e) {
+      console.error(`  [AI error] ${p.address ?? p.id}: ${e.message}`);
+    }
+  }
+}
+
 // ── main ───────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -409,6 +504,7 @@ async function main() {
     console.log("918Scanner scraper — DRY RUN (fake listings)");
     console.log(`Writing ${FAKE_LISTINGS.length} fake Tulsa listings to Supabase…\n`);
     const counts = await upsertAll(FAKE_LISTINGS, "dry-run", "dry-run");
+    await enrichWithAI();
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
     console.log(`\nDone in ${elapsed}s — new: ${counts.inserted}, updated: ${counts.updated}, errors: ${counts.errors}`);
     setOutput("inserted", counts.inserted);
@@ -440,6 +536,8 @@ async function main() {
       totals.errors++;
     }
   }
+
+  await enrichWithAI();
 
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   console.log(`\nDone in ${elapsed}s — inserted: ${totals.inserted}, updated: ${totals.updated}, errors: ${totals.errors}`);
