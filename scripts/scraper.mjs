@@ -497,6 +497,18 @@ Return ONLY valid JSON: {"rationale": "<your analysis>", "flags": ["tag1", "tag2
 
 // ── main ───────────────────────────────────────────────────────────────────────
 
+async function deleteDummyListings() {
+  const { error, count } = await supabase
+    .from("properties")
+    .delete({ count: "exact" })
+    .or("content_hash.like.dryrun%,external_id.like.test-%");
+  if (error) {
+    console.warn("  Warning: could not delete dummy listings:", error.message);
+  } else if (count && count > 0) {
+    console.log(`  Deleted ${count} dummy listing(s) from previous dry runs.`);
+  }
+}
+
 async function main() {
   const start = Date.now();
 
@@ -514,6 +526,9 @@ async function main() {
   }
 
   console.log("918Scanner scraper starting…");
+
+  // Remove any leftover dummy data from previous dry runs.
+  await deleteDummyListings();
 
   // CIMLS runs first (fetch-based, reliable). Crexi runs in parallel (Playwright, may be blocked).
   const [cimlsResult, crexiResult] = await Promise.allSettled([
