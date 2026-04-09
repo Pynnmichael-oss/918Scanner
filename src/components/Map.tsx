@@ -35,6 +35,30 @@ const VERDICT_COLORS: Record<string, string> = {
   Buy: "#15803d", Watch: "#a16207", Pass: "#b91c1c",
 };
 
+// Lives inside MapContainer so it can call useMap()
+function SeeDetailsButton({ p, onSelect }: { p: Property; onSelect: (p: Property) => void }) {
+  const map = useMap();
+  return (
+    <button
+      onClick={() => { map.closePopup(); onSelect(p); }}
+      style={{
+        fontSize: 12,
+        color: "#2563eb",
+        background: "none",
+        border: "1px solid #2563eb",
+        borderRadius: 5,
+        padding: "4px 10px",
+        cursor: "pointer",
+        fontWeight: 600,
+        width: "100%",
+        marginTop: 4,
+      }}
+    >
+      See details →
+    </button>
+  );
+}
+
 // Fits the map to show all markers the first time they load.
 function FitBounds({ properties }: { properties: Property[] }) {
   const map = useMap();
@@ -172,20 +196,7 @@ export default function Map({ properties, selected, onSelect }: MapProps) {
                   </div>
                 );
               })()}
-              <button
-                onClick={() => onSelect(p)}
-                style={{
-                  fontSize: 11,
-                  color: "#2563eb",
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                }}
-              >
-                See details →
-              </button>
+              <SeeDetailsButton p={p} onSelect={onSelect} />
             </div>
           </Popup>
         </CircleMarker>

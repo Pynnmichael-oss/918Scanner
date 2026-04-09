@@ -591,7 +591,8 @@ export default function Home() {
         </aside>
 
         {/* ── Map ── */}
-        <main className="flex-1 relative">
+        {/* z-0 creates a stacking context so Leaflet's internal z-indexes (700) stay inside main */}
+        <main className="flex-1 relative z-0">
           <Map
             properties={filtered}
             selected={selected}
