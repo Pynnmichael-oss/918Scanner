@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
 import type { Property, Filters } from "@/types/property";
 import { scoreColor } from "@/lib/colors";
-import { X, ExternalLink, Phone, Menu, Trash2, Check, TrendingUp, Hammer, MapPin, Target } from "lucide-react";
+import { X, ExternalLink, Phone, Trash2, Check, TrendingUp, Hammer, MapPin, Target } from "lucide-react";
 
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
@@ -285,45 +285,39 @@ export default function Home() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-gray-100">
-      {/* Mobile header */}
-      <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b shadow-sm z-20 shrink-0">
-        <button
-          onClick={() => setSidebarOpen((v) => !v)}
-          className="p-1 text-gray-600"
-          aria-label="Toggle sidebar"
-        >
-          <Menu size={20} />
-        </button>
-        <span className="font-semibold text-gray-900">918Scanner</span>
-        <span className="ml-auto text-sm text-gray-500">{filtered.length} listings</span>
+      {/* Mobile header — Map / List tab switcher */}
+      <header className="md:hidden flex items-center gap-3 px-4 py-2.5 bg-white border-b shadow-sm z-20 shrink-0">
+        <span className="font-semibold text-gray-900 text-sm">918Scanner</span>
+        <div className="ml-auto flex rounded-lg border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className={`px-4 py-1.5 text-sm font-medium transition-colors ${!sidebarOpen ? "bg-blue-600 text-white" : "bg-white text-gray-600"}`}
+          >
+            Map
+          </button>
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className={`px-4 py-1.5 text-sm font-medium transition-colors ${sidebarOpen ? "bg-blue-600 text-white" : "bg-white text-gray-600"}`}
+          >
+            List {filtered.length > 0 && <span className="ml-1 opacity-70">({filtered.length})</span>}
+          </button>
+        </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden relative">
-        {sidebarOpen && (
-          <div
-            className="md:hidden fixed inset-0 bg-black/40 z-30"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
 
         {/* ── Sidebar ── */}
         <aside
           className={[
-            "fixed md:relative inset-y-0 left-0 z-40 md:z-auto",
-            "w-72 bg-white shadow-lg flex flex-col shrink-0",
-            "transition-transform duration-200",
-            sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+            "absolute inset-0 z-40 bg-white flex flex-col",
+            "md:relative md:inset-auto md:z-auto md:w-72 md:shadow-lg md:shrink-0",
+            sidebarOpen ? "flex" : "hidden md:flex",
           ].join(" ")}
         >
           {/* Sidebar header */}
-          <div className="flex items-center justify-between px-4 py-4 border-b shrink-0">
-            <div>
-              <h1 className="font-bold text-lg text-gray-900">918Scanner</h1>
-              <p className="text-xs text-gray-500">Tulsa CRE · For Sale · Buy &amp; Hold</p>
-            </div>
-            <button className="md:hidden p-1 text-gray-400" onClick={() => setSidebarOpen(false)}>
-              <X size={18} />
-            </button>
+          <div className="px-4 py-4 border-b shrink-0">
+            <h1 className="font-bold text-lg text-gray-900">918Scanner</h1>
+            <p className="text-xs text-gray-500">Tulsa CRE · For Sale · Buy &amp; Hold</p>
           </div>
 
           <div className="flex-1 overflow-y-auto min-h-0">
@@ -479,26 +473,26 @@ export default function Home() {
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={(e) => { e.stopPropagation(); deleteProperty(p.id); }}
-                            className="p-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200"
+                            className="p-1.5 rounded bg-red-100 text-red-600 hover:bg-red-200"
                             title="Confirm delete"
                           >
-                            <Check size={12} />
+                            <Check size={14} />
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); setPendingDelete(null); }}
-                            className="p-0.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200"
+                            className="p-1.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200"
                             title="Cancel"
                           >
-                            <X size={12} />
+                            <X size={14} />
                           </button>
                         </div>
                       ) : (
                         <button
                           onClick={(e) => { e.stopPropagation(); setPendingDelete(p.id); }}
-                          className="p-0.5 rounded text-gray-300 hover:text-red-400 hover:bg-red-50 shrink-0 transition-colors"
+                          className="p-1.5 rounded text-gray-300 hover:text-red-400 hover:bg-red-50 shrink-0 transition-colors"
                           title="Delete listing"
                         >
-                          <Trash2 size={13} />
+                          <Trash2 size={15} />
                         </button>
                       )}
                     </div>
@@ -564,16 +558,26 @@ export default function Home() {
                       )
                     }
 
-                    {/* View link */}
-                    <a
-                      href={p.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium mt-2"
-                    >
-                      View listing <ExternalLink size={11} />
-                    </a>
+                    {/* View link + View on map (mobile) */}
+                    <div className="flex items-center gap-3 mt-2 flex-wrap">
+                      <a
+                        href={p.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium"
+                      >
+                        View listing <ExternalLink size={11} />
+                      </a>
+                      {selected?.id === p.id && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSidebarOpen(false); }}
+                          className="md:hidden inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium"
+                        >
+                          <MapPin size={11} /> View on map
+                        </button>
+                      )}
+                    </div>
                   </button>
                 );
               })}
