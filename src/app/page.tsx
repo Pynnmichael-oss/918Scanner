@@ -619,7 +619,7 @@ export default function Home() {
             Mobile:  full-width fixed overlay, slides in from left when list tab is active. */}
         <aside
           className={[
-            "fixed inset-y-0 left-0 z-40",
+            "fixed inset-y-0 left-0 z-[9999]",
             "md:relative md:z-auto md:translate-x-0",
             "w-full md:w-72",
             "bg-white shadow-lg flex flex-col shrink-0",
@@ -652,7 +652,7 @@ export default function Home() {
 
         {/* ── Mobile: bottom card shown when a marker is selected on the map tab ── */}
         {selected && mobileView === "map" && (
-          <div className="md:hidden absolute bottom-2 left-0 right-0 px-4 z-30">
+          <div className="md:hidden absolute bottom-2 left-0 right-0 px-4 z-[9000]">
             <MobileBottomCard
               p={selected}
               onViewInList={() => setMobileView("list")}
@@ -663,7 +663,7 @@ export default function Home() {
       </div>
 
       {/* ── Mobile bottom tab bar ── */}
-      <nav className="md:hidden flex border-t bg-white shrink-0 z-50" style={{ height: 56 }}>
+      <nav className="md:hidden flex border-t bg-white shrink-0 relative z-[10000]" style={{ height: 56 }}>
         <button
           onClick={() => setMobileView("map")}
           className={[
