@@ -6,17 +6,20 @@ import useSWR from "swr";
 import { supabase } from "@/lib/supabase";
 import type { Property, Filters } from "@/types/property";
 import { scoreColor } from "@/lib/colors";
-import { X, ExternalLink, Phone, Menu, Trash2, Check, TrendingUp, Hammer, MapPin, Target } from "lucide-react";
+import {
+  X, ExternalLink, Phone, Trash2, Check,
+  TrendingUp, Hammer, MapPin, Target,
+  Map as MapIcon, List as ListIcon,
+} from "lucide-react";
 
-const Map = dynamic(() => import("@/components/Map"), { ssr: false });
+const MapView = dynamic(() => import("@/components/Map"), { ssr: false });
 
 const PROPERTY_TYPES = [
   "office", "industrial", "multifamily", "mixed-use", "retail", "land",
 ];
 
-// Property types in each strategy bucket
-const INCOME_TYPES    = new Set(["office", "retail", "multifamily", "industrial"]);
-const REDEVEL_TYPES   = new Set(["land", "mixed-use"]);
+const INCOME_TYPES  = new Set(["office", "retail", "multifamily", "industrial"]);
+const REDEVEL_TYPES = new Set(["land", "mixed-use"]);
 
 const TYPE_BADGE: Record<string, string> = {
   office:      "bg-blue-50 text-blue-700",
@@ -113,7 +116,6 @@ function parseRationale(text: string | null): ParsedRationale | null {
   const clean = (s: string | undefined) =>
     s?.replace(/\s+/g, " ").trim() ?? null;
 
-  // Strip leading "1." "2." etc. from each extracted section
   const strip = (s: string | null) =>
     s ? s.replace(/^\d+\.\s*/, "").replace(/\s+/g, " ").trim() : null;
 
@@ -145,7 +147,6 @@ function AIDetail({ p }: { p: Property }) {
     );
   }
 
-  // If sections couldn't be parsed, fall back to raw text
   const hasSections = parsed && (parsed.income || parsed.redevel || parsed.context || parsed.verdict);
 
   return (
@@ -220,6 +221,62 @@ function AIDetail({ p }: { p: Property }) {
   );
 }
 
+// Compact card shown at the bottom of the map view when a marker is tapped.
+function MobileBottomCard({
+  p,
+  onViewInList,
+  onClose,
+}: {
+  p: Property;
+  onViewInList: () => void;
+  onClose: () => void;
+}) {
+  const verdict = extractVerdict(p.ai_rationale);
+  return (
+    <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-4">
+      <div className="flex items-start gap-2 mb-1">
+        <p className="flex-1 font-semibold text-gray-900 text-sm leading-snug">{p.address}</p>
+        <button onClick={onClose} className="p-0.5 text-gray-400 shrink-0 -mt-0.5">
+          <X size={16} />
+        </button>
+      </div>
+      <p className="text-base font-bold text-gray-800 mb-1.5">
+        {formatPrice(p.price)}
+        {p.sqft != null && (
+          <span className="font-normal text-gray-400 text-xs ml-2">{formatSqft(p.sqft)}</span>
+        )}
+      </p>
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+        {p.property_type && (
+          <span className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${TYPE_BADGE[p.property_type] ?? "bg-gray-100 text-gray-600"}`}>
+            {p.property_type}
+          </span>
+        )}
+        <ScoreBadge score={p.value_score} />
+        {verdict && (
+          <span className={`px-1.5 py-0.5 rounded text-xs ${VERDICT_STYLE[verdict]}`}>{verdict}</span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={onViewInList}
+          className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold"
+        >
+          View Details
+        </button>
+        <a
+          href={p.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center w-11 border border-gray-200 rounded-xl text-blue-600"
+        >
+          <ExternalLink size={16} />
+        </a>
+      </div>
+    </div>
+  );
+}
+
 const DEFAULT_FILTERS: Filters = {
   propertyType: "",
   strategy: "",
@@ -230,7 +287,8 @@ const DEFAULT_FILTERS: Filters = {
 export default function Home() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Property | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // mobile-only: which tab is active
+  const [mobileView, setMobileView] = useState<"map" | "list">("map");
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const { data: allProperties = [], error, isLoading, mutate } = useSWR(
@@ -271,6 +329,7 @@ export default function Home() {
     [filtered]
   );
 
+  // Scroll selected card into view; also fires when switching to list tab with a selection.
   useEffect(() => {
     if (!selected) return;
     setTimeout(() => {
@@ -278,309 +337,305 @@ export default function Home() {
         behavior: "smooth",
         block: "nearest",
       });
-    }, 150);
-  }, [selected]);
+    }, 200);
+  }, [selected, mobileView]);
 
   const hasFilters = Object.values(filters).some(Boolean);
 
-  return (
-    <div className="h-screen flex flex-col overflow-hidden bg-gray-100">
-      {/* Mobile header */}
-      <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b shadow-sm z-20 shrink-0">
-        <button
-          onClick={() => setSidebarOpen((v) => !v)}
-          className="p-1 text-gray-600"
-          aria-label="Toggle sidebar"
-        >
-          <Menu size={20} />
-        </button>
-        <span className="font-semibold text-gray-900">918Scanner</span>
-        <span className="ml-auto text-sm text-gray-500">{filtered.length} listings</span>
-      </header>
+  // Shared sidebar content (filters + listing cards), used in both desktop and mobile list view.
+  const sidebarInner = (
+    <div className="flex-1 overflow-y-auto min-h-0 pb-14 md:pb-0">
 
-      <div className="flex flex-1 overflow-hidden relative">
-        {sidebarOpen && (
-          <div
-            className="md:hidden fixed inset-0 bg-black/40 z-30"
-            onClick={() => setSidebarOpen(false)}
-          />
+      {/* ── Filters ── */}
+      <div className="p-4 space-y-4 border-b">
+        <div className="flex gap-2 flex-wrap text-xs">
+          <span className="px-2 py-1 bg-gray-100 rounded text-gray-600">
+            {filtered.length} of {allProperties.length} listings
+          </span>
+          {isLoading && (
+            <span className="px-2 py-1 bg-blue-50 rounded text-blue-600">Loading…</span>
+          )}
+          {error && (
+            <span className="px-2 py-1 bg-red-50 rounded text-red-600">Load error</span>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+            Strategy
+          </label>
+          <div className="flex gap-1.5">
+            {([
+              { value: "",              label: "All" },
+              { value: "income",        label: "Income Play" },
+              { value: "redevelopment", label: "Redevelopment" },
+            ] as const).map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setFilters((f) => ({ ...f, strategy: value }))}
+                className={[
+                  "flex-1 py-2 rounded-lg text-xs font-medium border transition-colors",
+                  filters.strategy === value
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-300",
+                ].join(" ")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {filters.strategy === "income" && (
+            <p className="text-xs text-gray-400 mt-1">Office · Retail · Multifamily · Industrial</p>
+          )}
+          {filters.strategy === "redevelopment" && (
+            <p className="text-xs text-gray-400 mt-1">Land · Mixed-Use · Distressed (score &lt;60)</p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+            Property Type
+          </label>
+          <select
+            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            value={filters.propertyType}
+            onChange={(e) => setFilters((f) => ({ ...f, propertyType: e.target.value }))}
+          >
+            <option value="">All types</option>
+            {PROPERTY_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+            Price Range ($)
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              placeholder="Min"
+              inputMode="numeric"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={filters.minPrice}
+              onChange={(e) => setFilters((f) => ({ ...f, minPrice: e.target.value }))}
+            />
+            <input
+              type="number"
+              placeholder="Max"
+              inputMode="numeric"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={filters.maxPrice}
+              onChange={(e) => setFilters((f) => ({ ...f, maxPrice: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-end justify-between">
+          <div className="space-y-1 text-xs text-gray-500">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
+              Strong (80+)
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 shrink-0" />
+              Moderate (50–79)
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+              Weak (&lt;50)
+            </div>
+          </div>
+          {hasFilters && (
+            <button
+              onClick={() => setFilters(DEFAULT_FILTERS)}
+              className="text-xs text-gray-400 hover:text-gray-600 underline"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Listings ── */}
+      <div className="p-3 space-y-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">
+          Listings
+        </p>
+
+        {isLoading && <p className="text-sm text-gray-400 px-1">Loading…</p>}
+        {!isLoading && sortedListings.length === 0 && (
+          <p className="text-sm text-gray-400 px-1">No listings found.</p>
         )}
 
-        {/* ── Sidebar ── */}
+        {sortedListings.map((p) => {
+          const isSelected = selected?.id === p.id;
+          return (
+            <button
+              key={p.id}
+              id={`card-${p.id}`}
+              onClick={() => setSelected(p)}
+              className={[
+                "w-full text-left rounded-xl border p-3 transition-all",
+                "hover:border-blue-300 hover:shadow-sm",
+                isSelected
+                  ? "border-blue-400 bg-blue-50 shadow-sm"
+                  : "border-gray-100 bg-white",
+              ].join(" ")}
+            >
+              {/* Address + delete */}
+              <div className="flex items-start justify-between gap-1 mb-1.5">
+                <p className="font-semibold text-gray-900 text-xs leading-snug">
+                  {p.address}
+                </p>
+                {pendingDelete === p.id ? (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteProperty(p.id); }}
+                      className="p-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200"
+                      title="Confirm delete"
+                    >
+                      <Check size={12} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setPendingDelete(null); }}
+                      className="p-0.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200"
+                      title="Cancel"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setPendingDelete(p.id); }}
+                    className="p-0.5 rounded text-gray-300 hover:text-red-400 hover:bg-red-50 shrink-0 transition-colors"
+                    title="Delete listing"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {/* Price */}
+              <p className="text-sm font-semibold text-gray-800 mb-1">
+                {formatPrice(p.price)}
+                {p.sqft != null && (
+                  <span className="font-normal text-gray-400 text-xs ml-1.5">
+                    {formatSqft(p.sqft)}
+                  </span>
+                )}
+                {p.price && p.sqft && (
+                  <span className="font-normal text-gray-400 text-xs ml-1.5">
+                    · {formatPpsf(p.price, p.sqft)}
+                  </span>
+                )}
+              </p>
+
+              {/* Badges */}
+              <div className="flex flex-wrap gap-1 mb-2">
+                {p.property_type && (
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${TYPE_BADGE[p.property_type] ?? "bg-gray-100 text-gray-600"}`}>
+                    {p.property_type}
+                  </span>
+                )}
+                <ScoreBadge score={p.value_score} />
+              </div>
+
+              {/* Broker (selected only) */}
+              {isSelected && (p.broker_name || p.broker_phone) && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                  {p.broker_name && <span>{p.broker_name}</span>}
+                  {p.broker_phone && (
+                    <a
+                      href={`tel:${p.broker_phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-0.5 text-blue-500 hover:underline"
+                    >
+                      <Phone size={11} />
+                      {p.broker_phone}
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* AI Analysis */}
+              {isSelected
+                ? <AIDetail p={p} />
+                : p.ai_rationale && (
+                  <div className="mt-1.5 border-t border-gray-100 pt-1.5 flex items-center gap-1">
+                    <span className="text-xs">✨</span>
+                    {(() => {
+                      const v = extractVerdict(p.ai_rationale);
+                      return v ? (
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${VERDICT_STYLE[v]}`}>{v}</span>
+                      ) : null;
+                    })()}
+                    <span className="text-xs text-gray-400 truncate">
+                      {p.ai_rationale.slice(0, 60)}…
+                    </span>
+                  </div>
+                )
+              }
+
+              {/* Actions row */}
+              <div className="flex items-center gap-3 mt-2">
+                <a
+                  href={p.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium"
+                >
+                  View listing <ExternalLink size={11} />
+                </a>
+                {/* Mobile: switch to map tab to see this marker */}
+                {isSelected && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMobileView("map"); }}
+                    className="md:hidden inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    <MapIcon size={11} />
+                    View on map
+                  </button>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="h-screen flex flex-col overflow-hidden bg-gray-100">
+
+      <div className="flex flex-1 overflow-hidden relative">
+
+        {/* ── Sidebar ──
+            Desktop: always visible, 288 px wide, relative in flex flow.
+            Mobile:  full-width fixed overlay, slides in from left when list tab is active. */}
         <aside
           className={[
-            "fixed md:relative inset-y-0 left-0 z-40 md:z-auto",
-            "w-72 bg-white shadow-lg flex flex-col shrink-0",
+            "fixed inset-y-0 left-0 z-40",
+            "md:relative md:z-auto md:translate-x-0",
+            "w-full md:w-72",
+            "bg-white shadow-lg flex flex-col shrink-0",
             "transition-transform duration-200",
-            sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+            mobileView === "list" ? "translate-x-0" : "-translate-x-full",
           ].join(" ")}
         >
-          {/* Sidebar header */}
           <div className="flex items-center justify-between px-4 py-4 border-b shrink-0">
             <div>
               <h1 className="font-bold text-lg text-gray-900">918Scanner</h1>
               <p className="text-xs text-gray-500">Tulsa CRE · For Sale · Buy &amp; Hold</p>
             </div>
-            <button className="md:hidden p-1 text-gray-400" onClick={() => setSidebarOpen(false)}>
-              <X size={18} />
-            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
+          {sidebarInner}
 
-            {/* ── Filters ── */}
-            <div className="p-4 space-y-4 border-b">
-              {/* Status row */}
-              <div className="flex gap-2 flex-wrap text-xs">
-                <span className="px-2 py-1 bg-gray-100 rounded text-gray-600">
-                  {filtered.length} of {allProperties.length} listings
-                </span>
-                {isLoading && (
-                  <span className="px-2 py-1 bg-blue-50 rounded text-blue-600">Loading…</span>
-                )}
-                {error && (
-                  <span className="px-2 py-1 bg-red-50 rounded text-red-600">Load error</span>
-                )}
-              </div>
-
-              {/* Strategy filter */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Strategy
-                </label>
-                <div className="flex gap-1.5">
-                  {([
-                    { value: "",              label: "All" },
-                    { value: "income",        label: "Income Play" },
-                    { value: "redevelopment", label: "Redevelopment" },
-                  ] as const).map(({ value, label }) => (
-                    <button
-                      key={value}
-                      onClick={() => setFilters((f) => ({ ...f, strategy: value }))}
-                      className={[
-                        "flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors",
-                        filters.strategy === value
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300",
-                      ].join(" ")}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                {filters.strategy === "income" && (
-                  <p className="text-xs text-gray-400 mt-1">Office · Retail · Multifamily · Industrial</p>
-                )}
-                {filters.strategy === "redevelopment" && (
-                  <p className="text-xs text-gray-400 mt-1">Land · Mixed-Use · Distressed (score &lt;60)</p>
-                )}
-              </div>
-
-              {/* Property type */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Property Type
-                </label>
-                <select
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  value={filters.propertyType}
-                  onChange={(e) => setFilters((f) => ({ ...f, propertyType: e.target.value }))}
-                >
-                  <option value="">All types</option>
-                  {PROPERTY_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t.charAt(0).toUpperCase() + t.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Price range */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Price Range ($)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    placeholder="Min"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={filters.minPrice}
-                    onChange={(e) => setFilters((f) => ({ ...f, minPrice: e.target.value }))}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Max"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={filters.maxPrice}
-                    onChange={(e) => setFilters((f) => ({ ...f, maxPrice: e.target.value }))}
-                  />
-                </div>
-              </div>
-
-              {/* Legend + clear */}
-              <div className="flex items-end justify-between">
-                <div className="space-y-1 text-xs text-gray-500">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
-                    Strong (80+)
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 shrink-0" />
-                    Moderate (50–79)
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
-                    Weak (&lt;50)
-                  </div>
-                </div>
-                {hasFilters && (
-                  <button
-                    onClick={() => setFilters(DEFAULT_FILTERS)}
-                    className="text-xs text-gray-400 hover:text-gray-600 underline"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* ── Listings panel ── */}
-            <div className="p-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">
-                Listings
-              </p>
-
-              {isLoading && <p className="text-sm text-gray-400 px-1">Loading…</p>}
-              {!isLoading && sortedListings.length === 0 && (
-                <p className="text-sm text-gray-400 px-1">No listings found.</p>
-              )}
-
-              {sortedListings.map((p) => {
-                return (
-                  <button
-                    key={p.id}
-                    id={`card-${p.id}`}
-                    onClick={() => setSelected(p)}
-                    className={[
-                      "w-full text-left rounded-xl border p-3 transition-all",
-                      "hover:border-blue-300 hover:shadow-sm",
-                      selected?.id === p.id
-                        ? "border-blue-400 bg-blue-50 shadow-sm"
-                        : "border-gray-100 bg-white",
-                    ].join(" ")}
-                  >
-                    {/* Address row + delete control */}
-                    <div className="flex items-start justify-between gap-1 mb-1.5">
-                      <p className="font-semibold text-gray-900 text-xs leading-snug">
-                        {p.address}
-                      </p>
-                      {pendingDelete === p.id ? (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); deleteProperty(p.id); }}
-                            className="p-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200"
-                            title="Confirm delete"
-                          >
-                            <Check size={12} />
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setPendingDelete(null); }}
-                            className="p-0.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200"
-                            title="Cancel"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setPendingDelete(p.id); }}
-                          className="p-0.5 rounded text-gray-300 hover:text-red-400 hover:bg-red-50 shrink-0 transition-colors"
-                          title="Delete listing"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Price + sqft + price/sf */}
-                    <p className="text-sm font-semibold text-gray-800 mb-1">
-                      {formatPrice(p.price)}
-                      {p.sqft != null && (
-                        <span className="font-normal text-gray-400 text-xs ml-1.5">
-                          {formatSqft(p.sqft)}
-                        </span>
-                      )}
-                      {p.price && p.sqft && (
-                        <span className="font-normal text-gray-400 text-xs ml-1.5">
-                          · {formatPpsf(p.price, p.sqft)}
-                        </span>
-                      )}
-                    </p>
-
-                    {/* Badges */}
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {p.property_type && (
-                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${TYPE_BADGE[p.property_type] ?? "bg-gray-100 text-gray-600"}`}>
-                          {p.property_type}
-                        </span>
-                      )}
-                      <ScoreBadge score={p.value_score} />
-                    </div>
-
-                    {/* Broker — only show when selected */}
-                    {selected?.id === p.id && (p.broker_name || p.broker_phone) && (
-                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
-                        {p.broker_name && <span>{p.broker_name}</span>}
-                        {p.broker_phone && (
-                          <a
-                            href={`tel:${p.broker_phone}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-0.5 text-blue-500 hover:underline"
-                          >
-                            <Phone size={11} />
-                            {p.broker_phone}
-                          </a>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ── AI Analysis — always structured when selected ── */}
-                    {selected?.id === p.id
-                      ? <AIDetail p={p} />
-                      : p.ai_rationale && (
-                        <div className="mt-1.5 border-t border-gray-100 pt-1.5 flex items-center gap-1">
-                          <span className="text-xs">✨</span>
-                          {(() => {
-                            const v = extractVerdict(p.ai_rationale);
-                            return v ? (
-                              <span className={`px-1.5 py-0.5 rounded text-xs ${VERDICT_STYLE[v]}`}>{v}</span>
-                            ) : null;
-                          })()}
-                          <span className="text-xs text-gray-400 truncate">
-                            {p.ai_rationale.slice(0, 60)}…
-                          </span>
-                        </div>
-                      )
-                    }
-
-                    {/* View link */}
-                    <a
-                      href={p.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium mt-2"
-                    >
-                      View listing <ExternalLink size={11} />
-                    </a>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Footer */}
           <div className="shrink-0 px-4 py-3 border-t text-xs text-gray-400">
             For Sale · Updated daily via GitHub Actions
           </div>
@@ -588,16 +643,59 @@ export default function Home() {
 
         {/* ── Map ── */}
         <main className="flex-1 relative">
-          <Map
+          <MapView
             properties={filtered}
             selected={selected}
-            onSelect={(p) => {
-              setSelected(p);
-              setSidebarOpen(true);
-            }}
+            onSelect={(p) => setSelected(p)}
           />
         </main>
+
+        {/* ── Mobile: bottom card shown when a marker is selected on the map tab ── */}
+        {selected && mobileView === "map" && (
+          <div className="md:hidden absolute bottom-2 left-0 right-0 px-4 z-30">
+            <MobileBottomCard
+              p={selected}
+              onViewInList={() => setMobileView("list")}
+              onClose={() => setSelected(null)}
+            />
+          </div>
+        )}
       </div>
+
+      {/* ── Mobile bottom tab bar ── */}
+      <nav className="md:hidden flex border-t bg-white shrink-0 z-50" style={{ height: 56 }}>
+        <button
+          onClick={() => setMobileView("map")}
+          className={[
+            "flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
+            mobileView === "map" ? "text-blue-600" : "text-gray-500",
+          ].join(" ")}
+        >
+          <MapIcon size={22} />
+          Map
+        </button>
+        <button
+          onClick={() => setMobileView("list")}
+          className={[
+            "flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
+            mobileView === "list" ? "text-blue-600" : "text-gray-500",
+          ].join(" ")}
+        >
+          <div className="relative">
+            <ListIcon size={22} />
+            {filtered.length > 0 && (
+              <span className={[
+                "absolute -top-1.5 -right-3.5 text-[9px] font-bold rounded-full px-1 min-w-[16px] text-center leading-4",
+                mobileView === "list" ? "bg-blue-600 text-white" : "bg-gray-300 text-gray-700",
+              ].join(" ")}>
+                {filtered.length}
+              </span>
+            )}
+          </div>
+          List
+        </button>
+      </nav>
+
     </div>
   );
 }
